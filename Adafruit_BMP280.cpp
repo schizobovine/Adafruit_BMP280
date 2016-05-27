@@ -123,7 +123,7 @@ uint8_t Adafruit_BMP280::read8(byte reg)
     Wire.endTransmission();
     Wire.requestFrom((uint8_t)_i2caddr, (byte)1);
     value = Wire.read();
-    Wire.endTransmission();
+
   } else {
     if (_sck == -1)
       SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
@@ -152,7 +152,7 @@ uint16_t Adafruit_BMP280::read16(byte reg)
     Wire.endTransmission();
     Wire.requestFrom((uint8_t)_i2caddr, (byte)2);
     value = (Wire.read() << 8) | Wire.read();
-    Wire.endTransmission();
+
   } else {
     if (_sck == -1)
       SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
@@ -190,6 +190,49 @@ int16_t Adafruit_BMP280::readS16_LE(byte reg)
 
 }
 
+
+/**************************************************************************/
+/*!
+    @brief  Reads a signed 16 bit value over I2C
+*/
+/**************************************************************************/
+
+uint32_t Adafruit_BMP280::read24(byte reg)
+{
+  uint32_t value;
+
+  if (_cs == -1) {
+    Wire.beginTransmission((uint8_t)_i2caddr);
+    Wire.write((uint8_t)reg);
+    Wire.endTransmission();
+    Wire.requestFrom((uint8_t)_i2caddr, (byte)3);
+    
+    value = Wire.read();
+    value <<= 8;
+    value |= Wire.read();
+    value <<= 8;
+    value |= Wire.read();
+
+  } else {
+    if (_sck == -1)
+      SPI.beginTransaction(SPISettings(500000, MSBFIRST, SPI_MODE0));
+    digitalWrite(_cs, LOW);
+    spixfer(reg | 0x80); // read, bit 7 high
+    
+    value = spixfer(0);
+    value <<= 8;
+    value |= spixfer(0);
+    value <<= 8;
+    value |= spixfer(0);
+
+    digitalWrite(_cs, HIGH);
+    if (_sck == -1)
+      SPI.endTransaction();              // release the SPI bus
+  }
+
+  return value;
+}
+
 /**************************************************************************/
 /*!
     @brief  Reads the factory-set coefficients
@@ -221,9 +264,7 @@ float Adafruit_BMP280::readTemperature(void)
 {
   int32_t var1, var2;
 
-  int32_t adc_T = read16(BMP280_REGISTER_TEMPDATA);
-  adc_T <<= 8;
-  adc_T |= read8(BMP280_REGISTER_TEMPDATA+2);
+  int32_t adc_T = read24(BMP280_REGISTER_TEMPDATA);
   adc_T >>= 4;
 
   var1  = ((((adc_T>>3) - ((int32_t)_bmp280_calib.dig_T1 <<1))) *
@@ -247,9 +288,10 @@ float Adafruit_BMP280::readTemperature(void)
 float Adafruit_BMP280::readPressure(void) {
   int64_t var1, var2, p;
 
-  int32_t adc_P = read16(BMP280_REGISTER_PRESSUREDATA);
-  adc_P <<= 8;
-  adc_P |= read8(BMP280_REGISTER_PRESSUREDATA+2);
+  // Must be done first to get the t_fine variable set up
+  readTemperature();
+
+  int32_t adc_P = read24(BMP280_REGISTER_PRESSUREDATA);
   adc_P >>= 4;
 
   var1 = ((int64_t)t_fine) - 128000;
